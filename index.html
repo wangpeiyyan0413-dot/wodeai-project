@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teachable Machine 姿态识别项目</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f2f5;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            margin: 0;
+        }
+
+        h2 { color: #333; }
+
+        #container {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+
+        #canvas-wrapper {
+            position: relative;
+            margin: 20px 0;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            width: 400px;
+            height: 400px;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #label-container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .label-item {
+            background: #e9ecef;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            color: #495057;
+            transition: all 0.3s;
+        }
+
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover { background-color: #0056b3; }
+    </style>
+</head>
+<body>
+
+    <div id="container">
+        <h2>姿态识别系统</h2>
+        <button type="button" onclick="init()">开启摄像头</button>
+        
+        <div id="canvas-wrapper">
+            <canvas id="canvas"></canvas>
+        </div>
+
+        <div id="label-container"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/pose@0.8/dist/teachablemachine-pose.min.js"></script>
+
+    <script type="text/javascript">
+        // 替换为你的模型链接
+        const URL = "https://teachablemachine.withgoogle.com/models/sTBoNGgmv/";
+        
+        let model, webcam, ctx, labelContainer, maxPredictions;
+
+        async function init() {
+            const modelURL = URL + "model.json";
+            const metadataURL = URL + "metadata.json";
+
+            // 加载模型和元数据
+            model = await tmPose.load(modelURL, metadataURL);
+            maxPredictions = model.getTotalClasses();
+
+            // 设置摄像头
+            const size = 400;
+            const flip = true; // 是否水平翻转
+            webcam = new tmPose.Webcam(size, size, flip); 
+            await webcam.setup(); // 请求浏览器权限
+            await webcam.play();
+            window.requestAnimationFrame(loop);
+
+            // 初始化 Canvas 绘制上下文
+            const canvas = document.getElementById("canvas");
+            canvas.width = size; canvas.height = size;
+            ctx = canvas.getContext("2d");
+
+            // 初始化标签容器
+            labelContainer = document.getElementById("label-container");
+            for (let i = 0; i < maxPredictions; i++) {
+                labelContainer.appendChild(document.createElement("div"));
+            }
+        }
+
+        async function loop(timestamp) {
+            webcam.update(); // 更新摄像头画面
+            await predict();
+            window.requestAnimationFrame(loop);
+        }
+
+        async function predict() {
+            // 预测方法 1：运行输入并预测姿态
+            // flip 可以是 true/false，如果摄像头已经翻转了，这里通常选 false
+            const { pose, posenetOutput } = await model.estimatePose(webcam.canvas);
+            
+            // 预测方法 2：运行分类器
+            const prediction = await model.predict(posenetOutput);
+
+            for (let i = 0; i < maxPredictions; i++) {
+                const classPrediction =
+                    prediction[i].className + ": " + (prediction[i].probability * 100).toFixed(2) + "%";
+                labelContainer.childNodes[i].innerHTML = classPrediction;
+                
+                // 给高概率的标签加个高亮效果
+                if(prediction[i].probability > 0.8) {
+                    labelContainer.childNodes[i].className = "label-item active";
+                    labelContainer.childNodes[i].style.backgroundColor = "#28a745";
+                    labelContainer.childNodes[i].style.color = "white";
+                } else {
+                    labelContainer.childNodes[i].className = "label-item";
+                    labelContainer.childNodes[i].style.backgroundColor = "#e9ecef";
+                    labelContainer.childNodes[i].style.color = "#495057";
+                }
+            }
+
+            // 绘制关键点和骨架
+            drawPose(pose);
+        }
+
+        function drawPose(pose) {
+            if (webcam.canvas) {
+                ctx.drawImage(webcam.canvas, 0, 0);
+                // 绘制骨架
+                if (pose) {
+                    const minPartConfidence = 0.5;
+                    tmPose.drawKeypoints(pose.keypoints, minPartConfidence, ctx);
+                    tmPose.drawSkeleton(pose.keypoints, minPartConfidence, ctx);
+                }
+            }
+        }
+    </script>
+</body>
+</html>
